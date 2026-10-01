@@ -42,7 +42,7 @@ STATE_DIR="${TMPDIR:-/tmp}/rtl_gate_state"
 #
 # When we DO read stdin it is bounded by `timeout`. A bare `cat` blocks forever
 # if stdin is open but nobody writes or closes it -- which hung this script for
-# the full 120s of a calibration run. This hook sits in the user's edit path, so
+# the full timeout of a scripted run. This hook sits in the user's edit path, so
 # it must be structurally incapable of hanging: a frozen editor is a worse
 # outcome than a missed review.
 FILE=""

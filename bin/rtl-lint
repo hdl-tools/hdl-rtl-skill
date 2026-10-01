@@ -10,16 +10,13 @@
 # ---------------------------------------------------------------------------
 # FILELIST CONTEXT -- why this is not a simple per-file lint
 # ---------------------------------------------------------------------------
-# Calibrated against a production RTL block (10 files, ~2650 lines):
+# In a hierarchical codebase, parameters and macros commonly live in a separate
+# file that the project filelist pulls in first. Linting one file in isolation
+# therefore reports a flood of "use of undeclared identifier" errors, none of
+# them real, while compiling the block as a single unit reports none.
 #
-#   per-file, no context  ->  93 BLOCKERs, every one "use of undeclared
-#                             identifier" from `define macros living in
-#                             another file. ZERO were real.
-#   with the project's own filelist, single compilation unit
-#                         ->  0 errors, 29 warnings. All real.
-#
-# A gate that reports 93 phantom blockers on good code gets switched off the
-# same day. So: if a project filelist can be found, it is used for CONTEXT,
+# A gate that reports phantom blockers on good code gets switched off the same
+# day. So: if a project filelist can be found, it is used for CONTEXT,
 # and the findings are then SCOPED back to the requested file(s). You get full
 # macro/package/parameter visibility without inheriting nine other files'
 # warnings every time you touch one.
@@ -155,11 +152,11 @@ if [ ! -s "$DIAG_JSON" ]; then
 fi
 
 # ---- which modules did --ignore-unknown-modules stub out? ------------------
-# Calibration finding: every real block instantiates library cells (clock
-# gates, muxes, RAMs, pads) that are NOT in its filelist. Stubbing them makes
-# their outputs look undriven, which propagates to the enclosing module's
-# output ports. On the calibration block that produced 7 undriven-* findings, ALL artifacts
-# of one stubbed clock-gate cell.
+# Every real block instantiates library cells (clock gates, muxes, RAMs, pads)
+# that are NOT in its filelist. Stubbing them makes their outputs look undriven,
+# which propagates to the enclosing module's output ports -- so a single stubbed
+# clock-gate cell can manufacture a whole cluster of undriven-* findings that
+# describe the stub rather than the design.
 #
 # So: find out what was stubbed, by re-running WITHOUT the flag and reading
 # the "unknown module 'X'" errors. Then undriven-* findings get demoted and
@@ -198,11 +195,12 @@ STUB_SENSITIVE = {"undriven-port", "undriven-net", "unused-but-set-net"}
 # Signedness findings whose "signed" side is an unsized integer literal or an
 # untyped parameter. slang renders both as 'logic signed[31:0]' with no name.
 #
-# Calibrated on a production state machine: 26 findings, all from state parameters declared
-# as bare `parameter SOME_STATE = 9;` (untyped => signed 32-bit), compared against
-# a reg[3:0] state. Rating these HIGH blocked the file for writing
-# `state == SOME_STATE`, which is value-correct: one unsigned operand makes the
-# whole expression unsigned, and the constants are positive.
+# FSM state encodings are often declared as bare `parameter SOME_STATE = 9;`.
+# Untyped means signed 32-bit, so every comparison against an unsigned state
+# register mixes signedness -- and one such declaration style can produce dozens
+# of findings in a single file. Those comparisons are value-correct: one unsigned
+# operand makes the whole expression unsigned, and the constants are positive.
+# Rating them HIGH blocks correct code for writing `state == SOME_STATE`.
 #
 # The PATTERN is still real -- it is AP-SIGN-02 -- so it is reported, at LOW.
 # HIGH stays reserved for the case that actually corrupts data: a signed
@@ -302,7 +300,7 @@ else:
     print("RTL-LINT: context = {}".format(ctx_mode))
     if not findings:
         print("RTL-LINT: clean. 0 findings from slang (full elaboration, -Weverything).")
-    # Roll up repeats. 26 findings from one declaration style is noise, and a
+    # Roll up repeats. Dozens of findings from one declaration style is noise, and a
     # report nobody reads protects nothing. Print the first, then a count.
     ROLLUP_AT = 4
     grouped = {}
