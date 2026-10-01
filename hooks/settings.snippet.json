@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "Merge the hooks block below into ~/.claude/settings.json (user scope) or",
+    ".claude/settings.json (project scope). Replace REPO_ROOT with the absolute",
+    "path to this repository -- install.sh prints the filled-in version for you.",
+    "",
+    "This is the only component that makes RTL review unskippable. Without it the",
+    "skills still work, but the model may choose not to invoke them.",
+    "",
+    "PostToolUse is the right event: the file is already written, and exit code 2",
+    "feeds the review back to the model as a blocking error it must act on. That",
+    "IS the auto-fix loop. rtl_gate.sh bounds it at 3 rounds.",
+    "",
+    "Verify the matcher syntax against the current Claude Code hooks docs before",
+    "relying on it -- hook schemas evolve. The gate itself does not depend on a",
+    "specific JSON field: it also accepts a path as $1."
+  ],
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "REPO_ROOT/hooks/rtl_gate.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
