@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# rtl-cdc -- opt-in deep CDC analysis.
+#
+# slang does NO clock-domain analysis of any kind (verified by probe; see
+# hooks/slang-warnings.txt). So every CDC finding from the default gate is
+# [reasoning] tier and labelled UNVERIFIED. This script is how you upgrade a
+# CDC conclusion to tool-backed evidence, which severity-rubric.md requires
+# for tape-out.
+#
+# It is deliberately honest about what it cannot do: if no CDC tool is
+# installed it says so and exits, rather than printing a reassuring summary
+# that no tool produced.
+
+set -uo pipefail
+
+if [ "$#" -eq 0 ]; then
+  echo "usage: rtl-cdc <file.sv> [more.sv ...]" >&2
+  exit 2
+fi
+
+# VC SpyGlass lives here on this machine, but the binary was not located when
+# this repo was built. Rather than guess an invocation, we look and report.
+SPYGLASS_ROOT="${SPYGLASS_HOME:-}"
+FOUND=""
+
+for candidate in sg_shell spyglass vc_static_shell; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    FOUND="$(command -v "$candidate")"
+    break
+  fi
+done
+
+if [ -z "$FOUND" ] && [ -d "$SPYGLASS_ROOT" ]; then
+  FOUND="$(find "$SPYGLASS_ROOT" -maxdepth 4 -type f \
+            \( -name sg_shell -o -name spyglass -o -name vc_static_shell \) \
+            -perm -u+x 2>/dev/null | head -1)"
+fi
+
+if [ -z "$FOUND" ]; then
+  cat <<EOF
+RTL-CDC: NOT_AVAILABLE
+
+No CDC tool found on PATH (looked for: sg_shell, spyglass, vc_static_shell)
+and none located under: $SPYGLASS_ROOT
+
+CONSEQUENCE -- state this plainly in any review:
+  All CDC findings remain [reasoning] tier and UNVERIFIED. Per
+  severity-rubric.md, a reasoning-only CDC conclusion is NOT sufficient for
+  tape-out signoff, however confident it reads.
+
+WHAT YOU CAN STILL DO, and should:
+  1. Enumerate every clock in the design by name.
+  2. For each signal, name its driving domain and every reading domain.
+  3. For each crossing, name its mechanism and check it against
+     skills/rtl-review-signoff/references/checklist-reset-cdc.md
+     and skills/rtl-anti-patterns/patterns/ap-cdc.md
+  4. Record each crossing as an INFO finding so the integrator inherits the
+     list instead of rediscovering it.
+
+  A structural review done properly catches AP-CDC-01 (multi-bit through a
+  2-flop sync), which is the most common CDC bug and needs no tool to see.
+
+  Set SPYGLASS_HOME if the tool is installed somewhere else.
+EOF
+  exit 0
+fi
+
+cat <<EOF
+RTL-CDC: found a CDC tool at
+  $FOUND
+
+This repo does not ship a canned goal setup for it, deliberately: CDC goals,
+clock definitions and waiver policy are project-specific, and a guessed setup
+produces a clean report that means nothing. Wire it to your project's existing
+CDC flow and feed the result back as [spyglass] tier evidence.
+
+Minimum the setup must define, or the run is not a CDC signoff:
+  - every clock, with its frequency and its relationship to the others
+    (a clock the tool does not know about generates no crossings)
+  - reset definitions per domain
+  - the CDC goal set your project signs off against
+  - waivers, each with a reason and a named owner
+
+Files given: $*
+EOF
+exit 0

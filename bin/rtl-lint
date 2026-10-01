@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# rtl-lint -- deterministic RTL evidence gatherer.
+#
+# Runs the best available SystemVerilog analyser over the given files and emits
+# findings normalised to BLOCKER/HIGH/MEDIUM/LOW/INFO, plus a machine-readable
+# summary line that hooks/rtl_gate.sh parses.
+#
+# Exit: 0 = no BLOCKER/HIGH   1 = BLOCKER or HIGH present   2 = could not run
+#
+# Tool preference: slang (fast, no licence) -> vcs -lint -> none.
+# With no tool available it degrades to UNVERIFIED and still exits 0, so the
+# repo stays usable on a machine with no EDA install.
+
+set -uo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SELF_DIR/.." && pwd)"
+CATALOGUE="$REPO_ROOT/hooks/slang-warnings.txt"
+
+JSON_OUT=0
+FILES=()
+for arg in "$@"; do
+  case "$arg" in
+    --json) JSON_OUT=1 ;;
+    -*)     echo "rtl-lint: unknown option $arg" >&2; exit 2 ;;
+    *)      FILES+=("$arg") ;;
+  esac
+done
+
+if [ "${#FILES[@]}" -eq 0 ]; then
+  echo "usage: rtl-lint [--json] <file.sv> [more.sv ...]" >&2
+  exit 2
+fi
+
+for f in "${FILES[@]}"; do
+  if [ ! -r "$f" ]; then
+    echo "rtl-lint: cannot read $f" >&2
+    exit 2
+  fi
+done
+
+# ---- tool discovery -------------------------------------------------------
+TOOL=none
+if command -v slang >/dev/null 2>&1; then
+  TOOL=slang
+elif command -v vcs >/dev/null 2>&1; then
+  TOOL=vcs
+fi
+
+if [ "$TOOL" = "none" ]; then
+  echo "RTL-LINT: no analyser found (slang, vcs). Findings are UNVERIFIED."
+  echo "RTL-LINT: install slang for deterministic width/latch/driver checks."
+  echo "RTL-LINT-SUMMARY BLOCKER=0 HIGH=0 MEDIUM=0 LOW=0 INFO=0 TOOL=none"
+  exit 0
+fi
+
+if [ "$TOOL" = "vcs" ]; then
+  # vcs can compile but its lint output is not normalised here. Report honestly
+  # rather than pretending to a severity mapping we have not verified.
+  echo "RTL-LINT: slang not found; vcs present but no verified severity map."
+  echo "RTL-LINT: findings are UNVERIFIED. Install slang for the real gate."
+  echo "RTL-LINT-SUMMARY BLOCKER=0 HIGH=0 MEDIUM=0 LOW=0 INFO=0 TOOL=vcs-unmapped"
+  exit 0
+fi
+
+# ---- run slang ------------------------------------------------------------
+# FULL elaboration on purpose. --lint-only would skip -Winferred-latch and
+# multiple-driver errors. See hooks/slang-warnings.txt.
+# --diag-json goes to a FILE: stdout carries a "Top level design units:"
+# preamble that would corrupt the JSON.
+DIAG_JSON="$(mktemp -t rtl-lint-XXXXXX.json)"
+trap 'rm -f "$DIAG_JSON"' EXIT
+
+slang --ignore-unknown-modules -Weverything --error-limit 0 --diag-abs-paths \
+      --diag-json "$DIAG_JSON" "${FILES[@]}" >/dev/null 2>&1
+
+if [ ! -s "$DIAG_JSON" ]; then
+  echo "[]" > "$DIAG_JSON"
+fi
+
+CATALOGUE="$CATALOGUE" JSON_OUT="$JSON_OUT" python3 - "$DIAG_JSON" <<'PY'
+import json, os, re, sys
+
+diag_path = sys.argv[1]
+catalogue = os.environ["CATALOGUE"]
+json_out  = os.environ["JSON_OUT"] == "1"
+
+# Severity map comes from the generated catalogue, never from this script.
+sev_map, cat_map = {}, {}
+row = re.compile(r"^([a-z0-9][a-z0-9-]*)\s+(BLOCKER|HIGH|MEDIUM|LOW|INFO)\s+(.+?)\s{2,}")
+try:
+    with open(catalogue) as fh:
+        for line in fh:
+            if line.startswith("#"):
+                continue
+            m = row.match(line)
+            if m:
+                sev_map[m.group(1)] = m.group(2)
+                cat_map[m.group(1)] = m.group(3).strip()
+except OSError:
+    pass
+
+try:
+    with open(diag_path) as fh:
+        diags = json.load(fh)
+except (OSError, json.JSONDecodeError):
+    diags = []
+
+ORDER = ["BLOCKER", "HIGH", "MEDIUM", "LOW", "INFO"]
+counts = dict.fromkeys(ORDER, 0)
+findings = []
+
+for d in diags:
+    opt = (d.get("optionName") or "").strip()
+    if d.get("severity") == "error":
+        sev, cat = "BLOCKER", "Syntax / Synthesizability Review"
+    else:
+        # A warning we have not classified is MEDIUM, never dropped. An
+        # unclassified finding is still a finding.
+        sev = sev_map.get(opt, "MEDIUM")
+        cat = cat_map.get(opt, "Unclassified -- add to hooks/slang-warnings.txt")
+    counts[sev] += 1
+    findings.append({
+        "severity": sev, "category": cat,
+        "option": opt or "(none)",
+        "location": d.get("location", "?"),
+        "scope": d.get("symbolPath", ""),
+        "message": d.get("message", ""),
+        "evidence": "slang",
+    })
+
+findings.sort(key=lambda f: ORDER.index(f["severity"]))
+
+if json_out:
+    print(json.dumps({"tool": "slang", "counts": counts, "findings": findings},
+                     indent=2))
+else:
+    if not findings:
+        print("RTL-LINT: clean. 0 findings from slang (full elaboration, -Weverything).")
+    for f in findings:
+        print("[{sev:<7}] {cat}".format(sev=f["severity"], cat=f["category"]))
+        print("          {loc}  {msg}".format(loc=f["location"], msg=f["message"]))
+        print("          evidence: slang -W{opt}".format(opt=f["option"]))
+    print("RTL-LINT-SUMMARY " +
+          " ".join("{}={}".format(k, counts[k]) for k in ORDER) +
+          " TOOL=slang")
+
+sys.exit(1 if (counts["BLOCKER"] or counts["HIGH"]) else 0)
+PY

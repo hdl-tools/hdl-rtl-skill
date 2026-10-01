@@ -1,0 +1,23 @@
+{
+  "name": "hdl-rtl-skill",
+  "version": "1.0.0",
+  "description": "RTL design, review and signoff for Verilog/SystemVerilog. Tool-backed review hook (slang), 11 compile-verified golden templates, 20-category signoff checklist, 53-entry anti-pattern library, bounded auto-fix loop. Built to reduce hallucinations, CDC/reset escapes and review escapes rather than to teach syntax.",
+  "license": "MIT",
+  "keywords": [
+    "verilog",
+    "systemverilog",
+    "rtl",
+    "asic",
+    "fpga",
+    "code-review",
+    "signoff",
+    "lint",
+    "cdc",
+    "fsm",
+    "fifo",
+    "slang",
+    "hardware",
+    "chip-design"
+  ],
+  "mcpServers": {}
+}

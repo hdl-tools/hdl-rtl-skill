@@ -1,0 +1,87 @@
+# slang diagnostic catalogue -- GENERATED, DO NOT HAND-EDIT
+# Regenerate: sh tests/discover-slang-warnings.sh > hooks/slang-warnings.txt
+#
+# Harvested empirically on 2026-10-01 from: slang version 9.0.0+54385bb
+# Method: each name below was produced by a probe file in tests/bad/ and read
+# back out of slang's own output. None of these names were recalled from
+# memory. slang has no --list-warnings option; -Whelp is NOT valid.
+#
+# ---------------------------------------------------------------------------
+# INVOCATION FACTS (these cost real debugging time -- do not re-derive)
+# ---------------------------------------------------------------------------
+# -Wall                 INVALID. slang rejects it. The gcc habit is a trap.
+# -Wextra               valid. enables the width/conversion family.
+# -Wconversion          valid. width+sign conversion family only.
+# -Wpedantic            valid. does NOT enable width-trunc.
+# -Weverything          valid. widest set. what the gate uses.
+#
+# --lint-only           DANGEROUS FOR THIS USE CASE. It skips hierarchy
+#                       elaboration, and therefore MISSES:
+#                           -Winferred-latch        (latch inference!)
+#                           multiple-driver errors
+#                       Verified: p_latch.sv reports nothing under
+#                       --lint-only and reports -Winferred-latch without it.
+#                       => The gate runs FULL elaboration plus
+#                          --ignore-unknown-modules so a single file whose
+#                          submodules are absent still checks cleanly.
+#
+# --diag-json <file>    Schema per diagnostic:
+#                         severity    "error" | "warning"
+#                         message     human text
+#                         optionName  warning name without the -W prefix
+#                         location    "file:line:col"
+#                         symbolPath  enclosing scope
+#                       Write to a FILE, not '-': stdout carries a
+#                       "Top level design units:" preamble that would
+#                       corrupt a naive JSON parse.
+#
+# ---------------------------------------------------------------------------
+# SEVERITY MAP  optionName -> our severity -> review category
+# ---------------------------------------------------------------------------
+# Any severity=="error" from slang is a BLOCKER regardless of name.
+
+width-trunc                HIGH      Width Review          implicit conversion truncates N to M bits
+port-width-trunc           HIGH      Width Review          port connection truncates N to M bits
+sign-compare               HIGH      Signedness Review     comparison of differently signed types
+inferred-latch             HIGH      Latch Review          latch inferred, not assigned on all paths
+case-default               MEDIUM    Case Statement Review case missing default label
+unassigned-variable        HIGH      Functional Intent     variable never assigned a value
+unused-but-set-variable    LOW       Maintainability       assigned but value never used
+unused-port                LOW       Maintainability       unused port signal
+
+# Found while making the golden templates clean -- each one cost a real
+# debug cycle, which is the point of writing them down here:
+arith-op-mismatch          HIGH      Signedness Review     arithmetic between operands of different types
+case-redundant-default     LOW       Case Statement Review 'unique' case also has a 'default' label
+useless-cast               INFO      Maintainability       cast to the same type
+
+# ---------------------------------------------------------------------------
+# NOT DETECTABLE BY slang -- these are [reasoning] tier and MUST be
+# reported as UNVERIFIED. Confirmed silent in probe testing:
+# ---------------------------------------------------------------------------
+# - arithmetic overflow:  8-bit + 8-bit into 8-bit produces NO diagnostic
+# - blocking assignment used inside always_ff: NO diagnostic
+# - CDC: no clock-domain analysis of any kind
+# - reset polarity / async-release / reset-domain-crossing
+# - FSM reachability, deadlock, one-hot violation
+# - protocol (ready/valid, AXI) deadlock or handshake violation
+# - arbitration starvation
+#
+# `default_nettype none makes implicit nets a hard ERROR (verified:
+# "use of undeclared identifier"). The style guide mandates it because it
+# converts a whole bug class from invisible to BLOCKER for free.
+#
+# Reserved-word trap found during probing: `small`, `medium`, `large` are
+# Verilog charge-strength keywords and are rejected as identifiers.
+#
+# SIGNEDNESS TRAP (cost a real debug cycle):
+#   WIDTH'(1) is SIGNED, because the bare literal 1 is a signed int and the
+#   size cast preserves signedness. Adding it to an unsigned vector trips
+#   -Warith-op-mismatch. Write WIDTH'(1'b1), or {{(WIDTH-1){1'b0}}, 1'b1}.
+#
+# unique case + default:
+#   slang flags the combination as -Wcase-redundant-default. The two really do
+#   conflict ('unique' asserts the illegal case is impossible, 'default' exists
+#   to recover when it happens). For anything that must not wedge in the field,
+#   keep default, drop unique, and assert uniqueness separately. See the DESIGN
+#   NOTE in golden_fsm.sv.
