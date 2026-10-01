@@ -54,6 +54,7 @@ module golden_counter #(
   // synthesis translate_on
 
   logic [WIDTH-1:0] count_d;
+  logic [WIDTH:0]   count_wide;  // SCRATCH: deliberately one bit wider, revert me
 
   assign at_max_o = (count_q == WIDTH'(MAX_COUNT));
 
@@ -69,7 +70,8 @@ module golden_counter #(
       if (at_max_o) begin
         count_d = SATURATE ? count_q : '0;
       end else begin
-        count_d = count_q + WIDTH'(1'b1);
+        // SCRATCH: deliberate width-trunc for CI proof, revert me
+        count_d = count_wide;
       end
     end
   end
