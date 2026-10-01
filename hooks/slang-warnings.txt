@@ -40,20 +40,41 @@
 # ---------------------------------------------------------------------------
 # Any severity=="error" from slang is a BLOCKER regardless of name.
 
-width-trunc                HIGH      Width Review          implicit conversion truncates N to M bits
-port-width-trunc           HIGH      Width Review          port connection truncates N to M bits
-sign-compare               HIGH      Signedness Review     comparison of differently signed types
-inferred-latch             HIGH      Latch Review          latch inferred, not assigned on all paths
-case-default               MEDIUM    Case Statement Review case missing default label
-unassigned-variable        HIGH      Functional Intent     variable never assigned a value
-unused-but-set-variable    LOW       Maintainability       assigned but value never used
-unused-port                LOW       Maintainability       unused port signal
+width-trunc                HIGH      Width Review            implicit conversion truncates N to M bits
+port-width-trunc           HIGH      Width Review            port connection truncates N to M bits
+sign-compare               HIGH      Signedness Review       comparison of differently signed types
+inferred-latch             HIGH      Latch Review            latch inferred, not assigned on all paths
+case-default               MEDIUM    Case Statement Review   case missing default label
+unassigned-variable        HIGH      Functional Intent       variable never assigned a value
+unused-but-set-variable    LOW       Maintainability         assigned but value never used
+unused-port                LOW       Maintainability         unused port signal
 
 # Found while making the golden templates clean -- each one cost a real
 # debug cycle, which is the point of writing them down here:
-arith-op-mismatch          HIGH      Signedness Review     arithmetic between operands of different types
-case-redundant-default     LOW       Case Statement Review 'unique' case also has a 'default' label
-useless-cast               INFO      Maintainability       cast to the same type
+arith-op-mismatch          HIGH      Signedness Review       arithmetic between operands of different types
+case-redundant-default     LOW       Case Statement Review   'unique' case also has a 'default' label
+useless-cast               INFO      Maintainability         cast to the same type
+
+# Added after calibrating against real RTL (a production block, 2654 lines, 10 files).
+# These six were the ones real code actually produced, and all six were
+# defaulting to MEDIUM because they were missing here -- which turned 29
+# warnings into 29 MEDIUMs and would have made the gate look like noise.
+undriven-port              MEDIUM    Functional Intent       output port is never driven
+undriven-net               MEDIUM    Functional Intent       net is never driven
+unused-net                 LOW       Maintainability         net is never used
+unused-but-set-net         LOW       Maintainability         net assigned but value never used
+unused-parameter           LOW       Maintainability         parameter is never used
+width-expand               LOW       Width Review            implicit conversion EXPANDS width
+#
+# Why width-expand is LOW while width-trunc is HIGH: expansion loses no data,
+# so it cannot corrupt a value. It is still worth seeing, because an unintended
+# expansion often means the narrow side is the mistake. Truncation is the
+# direction that destroys data, and stays HIGH.
+#
+# Why undriven-* is MEDIUM and unused-* is LOW: an undriven port or net is
+# usually a MISSING CONNECTION -- a real functional gap. An unused one is
+# usually dead code -- a maintenance cost. Treating both as MEDIUM buries the
+# connection bugs among the tidy-ups.
 
 # ---------------------------------------------------------------------------
 # NOT DETECTABLE BY slang -- these are [reasoning] tier and MUST be

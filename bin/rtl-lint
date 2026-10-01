@@ -7,6 +7,26 @@
 #
 # Exit: 0 = no BLOCKER/HIGH   1 = BLOCKER or HIGH present   2 = could not run
 #
+# ---------------------------------------------------------------------------
+# FILELIST CONTEXT -- why this is not a simple per-file lint
+# ---------------------------------------------------------------------------
+# Calibrated against real RTL (a production block, 10 files, 2654 lines):
+#
+#   per-file, no context  ->  93 BLOCKERs, every one "use of undeclared
+#                             identifier" from `define macros living in
+#                             another file. ZERO were real.
+#   with the project's own filelist, single compilation unit
+#                         ->  0 errors, 29 warnings. All real.
+#
+# A gate that reports 93 phantom blockers on good code gets switched off the
+# same day. So: if a project filelist can be found, it is used for CONTEXT,
+# and the findings are then SCOPED back to the requested file(s). You get full
+# macro/package/parameter visibility without inheriting nine other files'
+# warnings every time you touch one.
+#
+# Override with -F <filelist>, or RTL_LINT_FILELIST=<path>.
+# Disable discovery with RTL_LINT_NO_FILELIST=1.
+#
 # Tool preference: slang (fast, no licence) -> vcs -lint -> none.
 # With no tool available it degrades to UNVERIFIED and still exits 0, so the
 # repo stays usable on a machine with no EDA install.
@@ -18,17 +38,25 @@ REPO_ROOT="$(cd "$SELF_DIR/.." && pwd)"
 CATALOGUE="$REPO_ROOT/hooks/slang-warnings.txt"
 
 JSON_OUT=0
+FILELIST="${RTL_LINT_FILELIST:-}"
 FILES=()
-for arg in "$@"; do
-  case "$arg" in
-    --json) JSON_OUT=1 ;;
-    -*)     echo "rtl-lint: unknown option $arg" >&2; exit 2 ;;
-    *)      FILES+=("$arg") ;;
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --json)   JSON_OUT=1 ;;
+    -F|--filelist)
+              shift
+              [ "$#" -gt 0 ] || { echo "rtl-lint: -F needs a path" >&2; exit 2; }
+              FILELIST="$1" ;;
+    --)       shift; while [ "$#" -gt 0 ]; do FILES+=("$1"); shift; done; break ;;
+    -*)       echo "rtl-lint: unknown option $1" >&2; exit 2 ;;
+    *)        FILES+=("$1") ;;
   esac
+  shift
 done
 
 if [ "${#FILES[@]}" -eq 0 ]; then
-  echo "usage: rtl-lint [--json] <file.sv> [more.sv ...]" >&2
+  echo "usage: rtl-lint [--json] [-F <filelist>] <file.sv> [more.sv ...]" >&2
   exit 2
 fi
 
@@ -63,6 +91,35 @@ if [ "$TOOL" = "vcs" ]; then
   exit 0
 fi
 
+# ---- filelist discovery ---------------------------------------------------
+# Walk up from the first file's directory looking for the conventional
+# <block>/etc/rtl.f, then rtl.f beside the source, then a single *.f in a
+# sibling etc/. Stops at / or after 6 levels.
+discover_filelist() {
+  local dir
+  dir="$(cd "$(dirname "$1")" 2>/dev/null && pwd)" || return 1
+  local depth=0
+  while [ -n "$dir" ] && [ "$dir" != "/" ] && [ "$depth" -lt 6 ]; do
+    if [ -r "$dir/etc/rtl.f" ]; then printf '%s\n' "$dir/etc/rtl.f"; return 0; fi
+    if [ -r "$dir/rtl.f" ];     then printf '%s\n' "$dir/rtl.f";     return 0; fi
+    if [ -d "$dir/etc" ]; then
+      local n
+      n="$(find "$dir/etc" -maxdepth 1 -name '*.f' -type f 2>/dev/null | wc -l)"
+      if [ "$n" -eq 1 ]; then
+        find "$dir/etc" -maxdepth 1 -name '*.f' -type f 2>/dev/null | head -1
+        return 0
+      fi
+    fi
+    dir="$(dirname "$dir")"
+    depth=$((depth + 1))
+  done
+  return 1
+}
+
+if [ -z "$FILELIST" ] && [ "${RTL_LINT_NO_FILELIST:-0}" != "1" ]; then
+  FILELIST="$(discover_filelist "${FILES[0]}" || true)"
+fi
+
 # ---- run slang ------------------------------------------------------------
 # FULL elaboration on purpose. --lint-only would skip -Winferred-latch and
 # multiple-driver errors. See hooks/slang-warnings.txt.
@@ -71,23 +128,79 @@ fi
 DIAG_JSON="$(mktemp -t rtl-lint-XXXXXX.json)"
 trap 'rm -f "$DIAG_JSON"' EXIT
 
-slang --ignore-unknown-modules -Weverything --error-limit 0 --diag-abs-paths \
-      --diag-json "$DIAG_JSON" "${FILES[@]}" >/dev/null 2>&1
+COMMON=(--ignore-unknown-modules -Weverything --error-limit 0 --diag-abs-paths
+        --diag-json "$DIAG_JSON")
+
+if [ -n "$FILELIST" ] && [ -r "$FILELIST" ]; then
+  # -F resolves paths relative to the filelist itself, which is what project
+  # filelists assume. --single-unit so `define from one file reaches the next.
+  # --allow-use-before-declare because a single unit makes file ORDER matter
+  # and a project filelist is ordered for its own simulator, not for us.
+  CONTEXT_MODE="filelist:$FILELIST"
+  slang -F "$FILELIST" --single-unit --allow-use-before-declare \
+        "${COMMON[@]}" >/dev/null 2>&1
+  if [ ! -s "$DIAG_JSON" ]; then
+    # Filelist did not work (bad paths, unset env vars). Fall back rather than
+    # silently reporting nothing.
+    CONTEXT_MODE="single-file (filelist failed)"
+    slang "${COMMON[@]}" "${FILES[@]}" >/dev/null 2>&1
+  fi
+else
+  CONTEXT_MODE="single-file (no filelist found)"
+  slang "${COMMON[@]}" "${FILES[@]}" >/dev/null 2>&1
+fi
 
 if [ ! -s "$DIAG_JSON" ]; then
   echo "[]" > "$DIAG_JSON"
 fi
 
-CATALOGUE="$CATALOGUE" JSON_OUT="$JSON_OUT" python3 - "$DIAG_JSON" <<'PY'
+# ---- which modules did --ignore-unknown-modules stub out? ------------------
+# Calibration finding: every real block instantiates library cells (clock
+# gates, muxes, RAMs, pads) that are NOT in its filelist. Stubbing them makes
+# their outputs look undriven, which propagates to the enclosing module's
+# output ports. On a production block that produced 7 undriven-* findings, ALL artifacts
+# of one stubbed clock-gate cell.
+#
+# So: find out what was stubbed, by re-running WITHOUT the flag and reading
+# the "unknown module 'X'" errors. Then undriven-* findings get demoted and
+# annotated instead of being reported as real functional gaps.
+STUBBED=""
+if [ -n "$FILELIST" ] && [ -r "$FILELIST" ]; then
+  STUBBED="$(slang -F "$FILELIST" --single-unit --allow-use-before-declare \
+                   --error-limit 0 "$FILELIST" 2>&1 \
+             | grep -oE "unknown module '+[A-Za-z_0-9]+" \
+             | grep -oE "[A-Za-z_0-9]+$" | sort -u | paste -sd, -)"
+else
+  STUBBED="$(slang --error-limit 0 "${FILES[@]}" 2>&1 \
+             | grep -oE "unknown module '+[A-Za-z_0-9]+" \
+             | grep -oE "[A-Za-z_0-9]+$" | sort -u | paste -sd, -)"
+fi
+
+# Absolute paths of the files we were asked about, for scoping.
+SCOPE="$(for f in "${FILES[@]}"; do readlink -f "$f" 2>/dev/null || printf '%s\n' "$f"; done | paste -sd: -)"
+
+CATALOGUE="$CATALOGUE" JSON_OUT="$JSON_OUT" SCOPE="$SCOPE" \
+CONTEXT_MODE="$CONTEXT_MODE" STUBBED="$STUBBED" python3 - "$DIAG_JSON" <<'PY'
 import json, os, re, sys
 
 diag_path = sys.argv[1]
 catalogue = os.environ["CATALOGUE"]
 json_out  = os.environ["JSON_OUT"] == "1"
+scope     = [p for p in os.environ.get("SCOPE", "").split(":") if p]
+ctx_mode  = os.environ.get("CONTEXT_MODE", "unknown")
+stubbed   = [s for s in os.environ.get("STUBBED", "").split(",") if s]
+
+# undriven-* findings are unreliable when a library cell has been stubbed out,
+# because the stub drives nothing. Demote and say so rather than reporting a
+# functional gap that does not exist.
+STUB_SENSITIVE = {"undriven-port", "undriven-net", "unused-but-set-net"}
 
 # Severity map comes from the generated catalogue, never from this script.
 sev_map, cat_map = {}, {}
-row = re.compile(r"^([a-z0-9][a-z0-9-]*)\s+(BLOCKER|HIGH|MEDIUM|LOW|INFO)\s+(.+?)\s{2,}")
+# (\S.*?) not (.+?): "." matches a space, which let the category capture
+# degenerate to a single space on any row whose description was only one space
+# away. Found by a real finding printing with an empty category.
+row = re.compile(r"^([a-z0-9][a-z0-9-]*)\s+(BLOCKER|HIGH|MEDIUM|LOW|INFO)\s+(\S.*?)\s{2,}")
 try:
     with open(catalogue) as fh:
         for line in fh:
@@ -106,41 +219,78 @@ try:
 except (OSError, json.JSONDecodeError):
     diags = []
 
+def in_scope(loc):
+    """Keep only diagnostics about the files we were asked about.
+
+    Filelist mode compiles the whole block for context; without this filter,
+    editing one file would report every other file's warnings too -- a second
+    noise problem, and another reason a gate gets switched off."""
+    if not scope:
+        return True
+    path = loc.rsplit(":", 2)[0] if loc else ""
+    try:
+        real = os.path.realpath(path)
+    except OSError:
+        real = path
+    return any(real == s or os.path.basename(real) == os.path.basename(s)
+               for s in scope)
+
 ORDER = ["BLOCKER", "HIGH", "MEDIUM", "LOW", "INFO"]
 counts = dict.fromkeys(ORDER, 0)
-findings = []
+findings, out_of_scope = [], 0
 
 for d in diags:
+    loc = d.get("location", "?")
+    if not in_scope(loc):
+        out_of_scope += 1
+        continue
     opt = (d.get("optionName") or "").strip()
     if d.get("severity") == "error":
         sev, cat = "BLOCKER", "Syntax / Synthesizability Review"
     else:
         # A warning we have not classified is MEDIUM, never dropped. An
-        # unclassified finding is still a finding.
+        # unclassified finding is still a finding -- add it to the catalogue.
         sev = sev_map.get(opt, "MEDIUM")
         cat = cat_map.get(opt, "Unclassified -- add to hooks/slang-warnings.txt")
+    note = ""
+    if stubbed and opt in STUB_SENSITIVE and sev in ("MEDIUM", "HIGH"):
+        sev = "LOW"
+        note = ("likely an artifact of stubbed module(s): %s -- a stub drives "
+                "nothing, so its outputs read as undriven. Confirm against the "
+                "real cell before treating this as a functional gap."
+                % ", ".join(stubbed))
     counts[sev] += 1
     findings.append({
         "severity": sev, "category": cat,
         "option": opt or "(none)",
-        "location": d.get("location", "?"),
+        "location": loc,
         "scope": d.get("symbolPath", ""),
         "message": d.get("message", ""),
         "evidence": "slang",
+        "note": note,
     })
 
 findings.sort(key=lambda f: ORDER.index(f["severity"]))
 
 if json_out:
-    print(json.dumps({"tool": "slang", "counts": counts, "findings": findings},
+    print(json.dumps({"tool": "slang", "context": ctx_mode, "counts": counts,
+                      "out_of_scope": out_of_scope, "findings": findings},
                      indent=2))
 else:
+    print("RTL-LINT: context = {}".format(ctx_mode))
     if not findings:
         print("RTL-LINT: clean. 0 findings from slang (full elaboration, -Weverything).")
     for f in findings:
         print("[{sev:<7}] {cat}".format(sev=f["severity"], cat=f["category"]))
         print("          {loc}  {msg}".format(loc=f["location"], msg=f["message"]))
         print("          evidence: slang -W{opt}".format(opt=f["option"]))
+        if f.get("note"):
+            print("          NOTE: {n}".format(n=f["note"]))
+    if stubbed:
+        print("RTL-LINT: stubbed (not in filelist): {}".format(", ".join(stubbed)))
+    if out_of_scope:
+        print("RTL-LINT: {} finding(s) in other files of the same filelist, "
+              "not reported here.".format(out_of_scope))
     print("RTL-LINT-SUMMARY " +
           " ".join("{}={}".format(k, counts[k]) for k in ORDER) +
           " TOOL=slang")
