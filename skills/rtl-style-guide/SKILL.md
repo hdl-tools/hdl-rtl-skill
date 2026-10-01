@@ -19,12 +19,29 @@ disagree, the template is right — it compiles.
 
 ---
 
+## Precedence
+
+This guide is a default, not a mandate. When it meets a standard that already
+governs the code:
+
+1. **An explicit project/house standard wins.** If the team or the integrating
+   agent suite states its own rule, follow it.
+2. **The conventions of surrounding files win over this guide.** See
+   `rtl-workflow` §2, "Match the file, not the guide" — that rule covers
+   modification; this is its generation-time equivalent.
+3. **This guide is the default when neither exists.**
+4. **Where the guide is overridden, the *reason* for the rule still applies.**
+   Note it as INFO rather than silently dropping it — a reviewer should still
+   know the hazard the overridden rule was guarding against.
+
+---
+
 ## 1. Naming
 
 | Suffix | Means | Example |
 |---|---|---|
-| `_i` | module input port | `wr_en_i`, `s_valid_i` |
-| `_o` | module output port | `full_o`, `grant_o` |
+| `_i` | module input port (recommended) | `wr_en_i`, `s_valid_i` |
+| `_o` | module output port (recommended) | `full_o`, `grant_o` |
 | `_q` | output of a flop (current registered state) | `count_q`, `state_q` |
 | `_d` | input to a flop (next value, combinational) | `count_d`, `state_d` |
 | `_n` | active low | `rst_n`, `cs_n` |
@@ -33,6 +50,12 @@ disagree, the template is right — it compiles.
 Combine in the order *role then direction*: a registered output port is `count_q`
 (see `golden_counter.sv`), a registered output whose valid matters is
 `valid_q_o` (see `golden_pipeline_stage.sv`).
+
+**`_i`/`_o` is recommended, not required** — it is what makes a port's
+direction readable at the use site without checking the module header, and
+that reason holds regardless of which project you are in. A project standard
+that omits it overrides the convention under Precedence above, not the
+reason; note the omission as INFO rather than a finding.
 
 **Exempt from `_i`/`_o`:** `clk` and `rst_n`. Universally understood, and
 suffixing them adds noise to every single module. Multi-clock modules qualify by
@@ -169,10 +192,18 @@ Requirements:
   error state. An FSM with 5 legal states in 3 bits has 3 illegal encodings; a
   bit flip or an X during bring-up lands there, and without a default the
   machine wedges forever.
-- Use plain `case`, **not `unique case`, when you also have a `default`** — they
-  conflict, and slang flags it **[slang: `-Wcase-redundant-default`]**. Safe
-  recovery beats the uniqueness assertion; assert uniqueness separately as a
-  concurrent property. The reasoning is written out in `golden_fsm.sv`.
+- `unique case` and a `default` **conflict** — slang flags the combination
+  **[slang: `-Wcase-redundant-default`]**, because `unique` asserts the illegal
+  case cannot occur while `default` exists precisely to recover when it does.
+  Two legitimate answers, pick one and state it:
+  - **Plain `case` + `default`** — safe recovery, no uniqueness check in
+    simulation. **This repo's default.** Reasoning in `golden_fsm.sv`.
+  - **`unique case` without `default`**, plus a concurrent assertion for
+    illegal-state recovery — keeps the simulation/formal uniqueness check,
+    moves recovery into an explicit property instead of the case statement.
+  A project standard that mandates `unique case` is not wrong to override this
+  default; it is choosing the second option, and should pair it with the
+  recovery assertion rather than dropping recovery altogether.
 - Moore outputs (from `state_q` only) unless the spec genuinely needs Mealy.
 - Never assign outputs in the state-register block.
 
@@ -194,16 +225,24 @@ module m #(
 - **Type your parameters** (`int unsigned`, `bit`, `logic [W-1:0]`). An untyped
   parameter takes its type from its default value, which is how a `WIDTH` ends
   up signed.
-- **Assert the constraints you rely on**, in an `initial` block with `$fatal`:
+- **Assert the constraints you rely on**, in a guarded `initial` block with
+  `$fatal`:
   ```systemverilog
+  // synthesis translate_off
   initial begin
     if ((DEPTH & (DEPTH-1)) != 0)
       $fatal(1, "DEPTH must be a power of two (got %0d)", DEPTH);
   end
+  // synthesis translate_on
   ```
   Every golden template with a parameter constraint does this. A FIFO whose
   gray-code pointers assume a power-of-two depth must *refuse to elaborate* at
   depth 12 rather than produce broken flags.
+
+  **Every `initial` block in RTL is wrapped in `// synthesis translate_off` /
+  `translate_on` — parameter assertions included.** The assertion only needs to
+  run at elaboration; the guard is what keeps it from being read as synthesised
+  logic. `tests/run_tests.sh` checks this on every golden template.
 - Size-cast carefully: `WIDTH'(1)` is **signed**, because the bare literal `1`
   is a signed int. Write `WIDTH'(1'b1)` or `{{(WIDTH-1){1'b0}}, 1'b1}`.
 
@@ -271,7 +310,7 @@ will "simplify" it back into the bug you avoided.
 | Never | Why |
 |---|---|
 | `#delay` in RTL | Not synthesisable. Sim-only behaviour baked into the design. |
-| `initial` blocks for logic | Only for parameter assertions and simulation-only checks. FPGA tolerates it; ASIC does not. |
+| `initial` blocks for logic | Only for parameter assertions and simulation-only checks, and even those are wrapped in `// synthesis translate_off` / `translate_on`. FPGA tolerates it; ASIC does not. |
 | Blocking `=` in a clocked block | Sim/synth mismatch. slang does **not** catch this — review must. |
 | Non-blocking `<=` in `always_comb` | Simulates with a delta delay you did not intend. |
 | `always @(a or b)` explicit lists | Missing signal = sim/synth mismatch. Use `always @*` / `always_comb`. |

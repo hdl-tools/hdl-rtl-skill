@@ -44,10 +44,14 @@ module golden_rr_arbiter #(
     output logic         grant_valid_o
 );
 
+  // Guarded so the check runs at elaboration and never becomes synthesised
+  // logic.
+  // synthesis translate_off
   initial begin
     if (N < 1)
       $fatal(1, "golden_rr_arbiter: N must be >= 1 (got %0d)", N);
   end
+  // synthesis translate_on
 
   // Isolate the lowest set bit: x & (-x). Produces a one-hot result, or zero
   // when x is zero. This is what makes grant_o one-hot by construction rather

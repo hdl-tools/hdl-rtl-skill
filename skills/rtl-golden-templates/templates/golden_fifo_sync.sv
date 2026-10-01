@@ -43,6 +43,9 @@ module golden_fifo_sync #(
 
   localparam int unsigned ADDR_W = $clog2(DEPTH);
 
+  // Guarded so the check runs at elaboration and never becomes synthesised
+  // logic.
+  // synthesis translate_off
   initial begin
     if (DEPTH < 2)
       $fatal(1, "golden_fifo_sync: DEPTH must be >= 2 (got %0d)", DEPTH);
@@ -50,6 +53,7 @@ module golden_fifo_sync #(
       $fatal(1, "golden_fifo_sync: DEPTH must be a power of two (got %0d)",
              DEPTH);
   end
+  // synthesis translate_on
 
   logic [WIDTH-1:0] mem [DEPTH];
 

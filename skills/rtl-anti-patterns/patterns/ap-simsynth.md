@@ -98,8 +98,12 @@ power up arbitrarily and most ASIC synthesis ignores `initial` entirely.
 **Symptoms.** Works on FPGA, fails on ASIC. Or works in simulation on both and fails
 only in ASIC silicon — the worst case, because the FPGA prototype validated it.
 
-**Detection.** Every `initial` block must be either a parameter assertion (`$fatal`), or
-simulation-only and guarded (`// synthesis translate_off`). Anything else is a finding.
+**Detection.** Every `initial` block is guarded with `// synthesis translate_off` /
+`translate_on` — no exception. A parameter assertion (`$fatal`) is the only
+legitimate *content* for one, not an exemption from the guard: the assertion
+only needs to run at elaboration, and the guard is what keeps it from being
+read as synthesised logic. An unguarded `initial` block, of any content, is a
+finding.
 
 **Auto-fix.** Use a reset. If the target is genuinely FPGA-only and the initial value is
 deliberate, say so explicitly in a comment — otherwise the block is unportable in a way

@@ -82,7 +82,7 @@ Temporarily disable with `RTL_GATE_DISABLE=1`. Loop budget via `RTL_GATE_MAX_LOO
 | `bin/rtl-lint` | Tool discovery, filelist context, severity normalisation. Degrades honestly. |
 | `bin/rtl-cdc` | Opt-in deep CDC. Reports `NOT_AVAILABLE` rather than faking a report. |
 | `commands/` | `/rtl-review`, `/rtl-lint`, `/rtl-cdc` slash commands. |
-| `tests/run_tests.sh` | 20 checks: 11 templates must elaborate clean, 9 anti-patterns must be detected. |
+| `tests/run_tests.sh` | 21 checks: 11 templates must elaborate clean, 9 anti-patterns must be detected, no template may carry an unguarded `initial`. |
 | `tests/discover-slang-warnings.sh` | Re-derives the diagnostic catalogue by probing slang. |
 | `docs/` | Architecture, workflows, hallucination prevention, full worked example. |
 
@@ -141,7 +141,7 @@ responsible cell — rather than reporting a functional gap that does not exist.
 ## Verify it yourself
 
 ```bash
-tests/run_tests.sh                                          # 20 checks
+tests/run_tests.sh                                          # 21 checks
 bin/rtl-lint tests/bad/ap_width_trunc.sv                    # HIGH, real slang message
 hooks/rtl_gate.sh tests/bad/ap_inferred_latch.sv; echo $?    # exit 2
 ```
