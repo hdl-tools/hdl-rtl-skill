@@ -40,10 +40,14 @@ module golden_sync_2ff #(
     output logic sync_q_o        // safe to use in the clk domain
 );
 
+  // Guarded so the check runs at elaboration and never becomes synthesised
+  // logic.
+  // synthesis translate_off
   initial begin
     if (STAGES < 2)
       $fatal(1, "golden_sync_2ff: STAGES must be >= 2 (got %0d)", STAGES);
   end
+  // synthesis translate_on
 
   // Synthesis attribute: keeps the chain from being retimed or merged, and
   // marks it for the CDC checker. Vendor spelling varies -- Xilinx ASYNC_REG,

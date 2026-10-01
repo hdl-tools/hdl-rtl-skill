@@ -72,6 +72,9 @@ module golden_fifo_async #(
 
   localparam int unsigned ADDR_W = $clog2(DEPTH);
 
+  // Guarded so the check runs at elaboration and never becomes synthesised
+  // logic.
+  // synthesis translate_off
   initial begin
     // DEPTH >= 4 is not arbitrary: the full comparison slices
     // [ADDR_W-2:0] off the synchronised read pointer, which needs ADDR_W >= 2.
@@ -81,6 +84,7 @@ module golden_fifo_async #(
       $fatal(1, "golden_fifo_async: DEPTH must be a power of two (got %0d)",
              DEPTH);
   end
+  // synthesis translate_on
 
   // Pointers are ADDR_W+1 bits: the extra bit distinguishes full from empty.
   logic [ADDR_W:0] wr_bin_q,  wr_gray_q;

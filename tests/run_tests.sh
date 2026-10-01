@@ -8,8 +8,11 @@
 #      own "// EXPECT:" headers. This proves the anti-pattern detection claims
 #      are real and that the severity map in hooks/slang-warnings.txt is wired
 #      to something.
+#   3. GUARD: no golden template may carry an unguarded `initial` block. The
+#      repo took two positions on this (see issue #2); this check is what
+#      keeps it from drifting back.
 #
-# Exit 0 only if both halves pass.
+# Exit 0 only if all three checks pass.
 
 set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -78,6 +81,30 @@ for f in "$BAD"/*.sv; do
     fail=$((fail+1))
   fi
 done
+
+echo
+echo "=============================================================="
+echo " 3. TEMPLATE initial BLOCKS -- must be synthesis-guarded"
+echo "=============================================================="
+unguarded=""
+for f in "$TEMPLATES"/*.sv "$TEMPLATES"/*.v; do
+  [ -e "$f" ] || continue
+  if awk '
+    /synthesis[ \t]+translate_off/ { off=1; next }
+    /synthesis[ \t]+translate_on/  { off=0; next }
+    /^[ \t]*initial[^A-Za-z0-9_]/ && !off { bad=1 }
+    END { exit !bad }
+  ' "$f"; then
+    unguarded="$unguarded $(basename "$f")"
+  fi
+done
+if [ -z "$unguarded" ]; then
+  printf '  PASS  no unguarded initial block in any template\n'
+  pass=$((pass+1))
+else
+  printf '  FAIL  unguarded initial block in:%s\n' "$unguarded"
+  fail=$((fail+1))
+fi
 
 echo
 echo "=============================================================="

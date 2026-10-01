@@ -41,7 +41,9 @@ module golden_counter #(
 );
 
   // Elaboration-time guards. These fail the build instead of producing a
-  // counter that silently cannot reach its own terminal count.
+  // counter that silently cannot reach its own terminal count. Guarded so the
+  // check runs at elaboration and never becomes synthesised logic.
+  // synthesis translate_off
   initial begin
     if (WIDTH == 0)
       $fatal(1, "golden_counter: WIDTH must be >= 1");
@@ -49,6 +51,7 @@ module golden_counter #(
       $fatal(1, "golden_counter: MAX_COUNT=%0d does not fit in WIDTH=%0d",
              MAX_COUNT, WIDTH);
   end
+  // synthesis translate_on
 
   logic [WIDTH-1:0] count_d;
 

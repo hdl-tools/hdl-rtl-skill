@@ -17,15 +17,19 @@ default it was written and tested with.
   - `STAGES = 1` for a synchroniser — that is no longer a synchroniser.
 - Non-power-of-two values where the logic assumes binary wrap. Gray-coded FIFO
   pointers are **wrong** at depth 12.
-- **Every assumption must be an elaboration-time assertion**, not a comment:
+- **Every assumption must be an elaboration-time assertion**, not a comment,
+  and the `initial` block carrying it is guarded so it never becomes
+  synthesised logic:
   ```systemverilog
+  // synthesis translate_off
   initial begin
     if ((DEPTH & (DEPTH-1)) != 0)
       $fatal(1, "DEPTH must be a power of two (got %0d)", DEPTH);
   end
+  // synthesis translate_on
   ```
   A comment saying "DEPTH must be a power of two" is not a check. Every golden
-  template with a constraint asserts it.
+  template with a constraint asserts it this way.
 - `parameter` vs `localparam`: anything **derived** must be `localparam`. A
   derived value left as a `parameter` can be overridden inconsistently with what
   it was derived from, and the module breaks in a way that compiles cleanly.
@@ -42,8 +46,8 @@ flag, or a degenerate structure, and nothing refuses to elaborate.
 a plausible value does and there is no assertion. MEDIUM for a missing assertion on
 a constraint that is currently respected by all callers.
 
-**Fix** Add the `initial`/`$fatal` guard. Convert derived parameters to
-`localparam`. Where the boundary case is genuinely unsupported, assert it out
+**Fix** Add the guarded `initial`/`$fatal` assertion. Convert derived parameters
+to `localparam`. Where the boundary case is genuinely unsupported, assert it out
 rather than leaving it to be discovered.
 
 ---
