@@ -195,6 +195,21 @@ stubbed   = [s for s in os.environ.get("STUBBED", "").split(",") if s]
 # functional gap that does not exist.
 STUB_SENSITIVE = {"undriven-port", "undriven-net", "unused-but-set-net"}
 
+# Signedness findings whose "signed" side is an unsized integer literal or an
+# untyped parameter. slang renders both as 'logic signed[31:0]' with no name.
+#
+# Calibrated on a production state machine: 26 findings, all from FSM state parameters declared
+# as bare `parameter SOME_STATE = 9;` (untyped => signed 32-bit), compared against
+# a reg[3:0] state. Rating these HIGH blocked the file for writing
+# `state == SOME_STATE`, which is value-correct: one unsigned operand makes the
+# whole expression unsigned, and the constants are positive.
+#
+# The PATTERN is still real -- it is AP-SIGN-02 -- so it is reported, at LOW.
+# HIGH stays reserved for the case that actually corrupts data: a signed
+# VARIABLE that can hold a negative value meeting an unsigned one.
+SIGN_SENSITIVE = {"sign-compare", "case-type", "sign-conversion"}
+LITERAL_SIGNED = "logic signed[31:0]"
+
 # Severity map comes from the generated catalogue, never from this script.
 sev_map, cat_map = {}, {}
 # (\S.*?) not (.+?): "." matches a space, which let the category capture
@@ -253,7 +268,14 @@ for d in diags:
         sev = sev_map.get(opt, "MEDIUM")
         cat = cat_map.get(opt, "Unclassified -- add to hooks/slang-warnings.txt")
     note = ""
-    if stubbed and opt in STUB_SENSITIVE and sev in ("MEDIUM", "HIGH"):
+    msg = d.get("message", "")
+    if opt in SIGN_SENSITIVE and LITERAL_SIGNED in msg and sev in ("MEDIUM", "HIGH"):
+        sev = "LOW"
+        note = ("signed side is an unsized literal or untyped parameter, not a "
+                "signed variable -- the expression evaluates unsigned and the "
+                "value is correct. Root cause is AP-SIGN-02: type the parameter "
+                "(parameter int unsigned X) or use a typedef enum for state.")
+    elif stubbed and opt in STUB_SENSITIVE and sev in ("MEDIUM", "HIGH"):
         sev = "LOW"
         note = ("likely an artifact of stubbed module(s): %s -- a stub drives "
                 "nothing, so its outputs read as undriven. Confirm against the "
@@ -280,10 +302,30 @@ else:
     print("RTL-LINT: context = {}".format(ctx_mode))
     if not findings:
         print("RTL-LINT: clean. 0 findings from slang (full elaboration, -Weverything).")
+    # Roll up repeats. 26 findings from one declaration style is noise, and a
+    # report nobody reads protects nothing. Print the first, then a count.
+    ROLLUP_AT = 4
+    grouped = {}
     for f in findings:
+        grouped.setdefault((f["severity"], f["option"]), []).append(f)
+
+    for f in findings:
+        key = (f["severity"], f["option"])
+        group = grouped.get(key)
+        if group is None:
+            continue
+        del grouped[key]                      # emit each group once, in severity order
         print("[{sev:<7}] {cat}".format(sev=f["severity"], cat=f["category"]))
         print("          {loc}  {msg}".format(loc=f["location"], msg=f["message"]))
         print("          evidence: slang -W{opt}".format(opt=f["option"]))
+        if len(group) >= ROLLUP_AT:
+            others = ", ".join(g["location"].rsplit("/", 1)[-1] for g in group[1:6])
+            print("          + {n} more of the same, same root cause: {o}{e}".format(
+                n=len(group) - 1, o=others,
+                e=" ..." if len(group) > 6 else ""))
+        elif len(group) > 1:
+            for g in group[1:]:
+                print("          also: {loc}".format(loc=g["location"]))
         if f.get("note"):
             print("          NOTE: {n}".format(n=f["note"]))
     if stubbed:

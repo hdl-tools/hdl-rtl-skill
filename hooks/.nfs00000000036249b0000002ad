@@ -37,29 +37,15 @@ STATE_DIR="${TMPDIR:-/tmp}/rtl_gate_state"
 # ---------------------------------------------------------------------------
 # 1. Work out which file was edited
 # ---------------------------------------------------------------------------
-# A path given as $1 short-circuits stdin entirely: cheaper, and it means a
-# script or CI caller never touches the stdin path at all.
-#
-# When we DO read stdin it is bounded by `timeout`. A bare `cat` blocks forever
-# if stdin is open but nobody writes or closes it -- which hung this script for
-# the full 120s of a calibration run. This hook sits in the user's edit path, so
-# it must be structurally incapable of hanging: a frozen editor is a worse
-# outcome than a missed review.
-FILE=""
 PAYLOAD=""
-
-if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
-  FILE="$1"
-elif [ ! -t 0 ]; then
-  if command -v timeout >/dev/null 2>&1; then
-    PAYLOAD="$(timeout 2 cat 2>/dev/null || true)"
-  else
-    # No timeout binary: read one line with bash's own bounded read.
-    IFS= read -r -t 2 PAYLOAD 2>/dev/null || PAYLOAD=""
-  fi
+if [ ! -t 0 ]; then
+  PAYLOAD="$(cat 2>/dev/null || true)"
 fi
 
-if [ -z "$FILE" ] && [ -n "$PAYLOAD" ]; then
+FILE=""
+if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
+  FILE="$1"
+elif [ -n "$PAYLOAD" ]; then
   FILE="$(printf '%s' "$PAYLOAD" | python3 -c '
 import json, re, sys
 raw = sys.stdin.read()

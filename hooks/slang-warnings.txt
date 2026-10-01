@@ -65,6 +65,12 @@ unused-net                 LOW       Maintainability         net is never used
 unused-but-set-net         LOW       Maintainability         net assigned but value never used
 unused-parameter           LOW       Maintainability         parameter is never used
 width-expand               LOW       Width Review            implicit conversion EXPANDS width
+
+# Added after calibrating against a second real block (a second production block). Both arise from
+# untyped parameters used as FSM state encodings -- AP-SIGN-02. 26 findings in
+# one file from one declaration style, which is why rtl-lint now rolls repeats up.
+case-type                  MEDIUM    Case Statement Review   case item type differs from the selector
+sign-conversion            MEDIUM    Signedness Review       implicit conversion changes signedness
 #
 # Why width-expand is LOW while width-trunc is HIGH: expansion loses no data,
 # so it cannot corrupt a value. It is still worth seeing, because an unintended
