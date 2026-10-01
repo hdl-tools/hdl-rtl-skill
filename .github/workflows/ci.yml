@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # weekly, off the hour -- catches a slang release breaking the templates
+    # even when nobody touches this repo that week.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    # Deterministic: pinned slang. A red run here means a commit broke something.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install slang v12.0
+        run: |
+          set -euo pipefail
+          curl -sSL -o slang.tar.gz \
+            https://github.com/MikePopoloski/slang/releases/download/v12.0/slang-linux-x86_64.tar.gz
+          mkdir -p slang-dist
+          tar xzf slang.tar.gz -C slang-dist
+          bin="$(find slang-dist -type f -name slang -perm -u+x | head -1)"
+          if [ -z "$bin" ]; then
+            echo "::error::slang binary not found inside the release tarball" >&2
+            find slang-dist
+            exit 1
+          fi
+          echo "$(dirname "$bin")" >> "$GITHUB_PATH"
+
+      - name: Confirm slang is on PATH
+        run: slang --version
+
+      - name: Run RTL test suite (tests/run_tests.sh)
+        run: |
+          set +e
+          bash tests/run_tests.sh
+          rc=$?
+          set -e
+          if [ "$rc" -eq 77 ]; then
+            echo "::error::run_tests.sh reported slang missing (exit 77) even though it was just installed and verified above."
+            exit 1
+          fi
+          exit "$rc"
+
+      - name: Verify README's "21 checks" claim
+        run: |
+          set -euo pipefail
+          claimed="$(grep -oP '^\| `tests/run_tests\.sh` \| \K[0-9]+' README.md)"
+          actual="$(bash tests/run_tests.sh | grep -oP '^ \K[0-9]+(?= passed)')"
+          echo "claimed: $claimed  actual: $actual"
+          [ "$claimed" = "$actual" ]
+
+      - name: Verify README's template/anti-pattern/probe claims (tests/check-claims.sh)
+        run: bash tests/check-claims.sh
+
+      - name: shellcheck
+        run: |
+          shellcheck --severity=error \
+            tests/run_tests.sh tests/discover-slang-warnings.sh tests/check-claims.sh \
+            hooks/rtl_gate.sh install.sh bin/rtl-lint bin/rtl-cdc
+
+      - name: Validate JSON manifests
+        run: |
+          jq empty .claude-plugin/plugin.json
+          jq empty hooks/settings.snippet.json
+
+      - name: bin/rtl-cdc must degrade honestly when no CDC tool is present
+        run: |
+          set -euo pipefail
+          out="$(bin/rtl-cdc skills/rtl-golden-templates/templates/golden_counter.sv)"
+          echo "$out"
+          echo "$out" | grep -q 'NOT_AVAILABLE'
+
+  slang-latest:
+    # Non-blocking signal only: never runs on a PR, so it can never block one.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve latest slang release
+        id: latest
+        run: |
+          set -euo pipefail
+          tag="$(curl -sSL https://api.github.com/repos/MikePopoloski/slang/releases/latest | jq -r .tag_name)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Resolved latest slang release: $tag"
+
+      - name: Install slang ${{ steps.latest.outputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.latest.outputs.tag }}"
+          curl -sSL -o slang.tar.gz \
+            "https://github.com/MikePopoloski/slang/releases/download/${tag}/slang-linux-x86_64.tar.gz"
+          mkdir -p slang-dist
+          tar xzf slang.tar.gz -C slang-dist
+          bin="$(find slang-dist -type f -name slang -perm -u+x | head -1)"
+          if [ -z "$bin" ]; then
+            echo "::error::slang binary not found inside the ${tag} release tarball" >&2
+            find slang-dist
+            exit 1
+          fi
+          echo "$(dirname "$bin")" >> "$GITHUB_PATH"
+
+      - name: Confirm slang is on PATH
+        run: slang --version
+
+      - name: Run RTL test suite against latest slang
+        run: |
+          set +e
+          bash tests/run_tests.sh
+          rc=$?
+          set -e
+          if [ "$rc" -eq 77 ]; then
+            echo "::error::run_tests.sh reported slang missing even though it was just installed."
+            exit 1
+          fi
+          if [ "$rc" -ne 0 ]; then
+            echo "::warning::Templates/anti-patterns no longer clean under the latest slang (${{ steps.latest.outputs.tag }}). This is real drift, not a CI bug -- see run_tests.sh output above."
+          fi
+          exit "$rc"
