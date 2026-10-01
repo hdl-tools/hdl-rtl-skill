@@ -71,6 +71,23 @@ width-expand               LOW       Width Review            implicit conversion
 # one file from one declaration style, which is why rtl-lint now rolls repeats up.
 case-type                  MEDIUM    Case Statement Review   case item type differs from the selector
 sign-conversion            MEDIUM    Signedness Review       implicit conversion changes signedness
+
+# Added from the a second production block calibration.
+#
+# incomplete-return was briefly rated HIGH here on the assumption that a
+# non-void function missing a return path yields an undefined value. READING THE
+# CODE disproved that for the instance found: it was the legacy Verilog idiom of
+# assigning to the function NAME bit by bit in a loop, rather than using
+# `return`. Every bit is assigned, so the function is correct and slang simply
+# cannot prove it through a parameterised loop bound. Rating it HIGH blocked
+# correct code.
+#
+# MEDIUM is the right level: a genuine missing return IS a real bug, but the
+# common cause of this diagnostic is the legacy idiom, so it must surface for a
+# human to read rather than block. When you see it, read the function before
+# acting -- the severity depends entirely on which of the two it is.
+incomplete-return          MEDIUM    Functional Intent       non-void function may not return a value
+unused-implicit-net        MEDIUM    Maintainability         implicit net declared and unused (AP-STRUCT-02)
 #
 # Why width-expand is LOW while width-trunc is HIGH: expansion loses no data,
 # so it cannot corrupt a value. It is still worth seeing, because an unintended
