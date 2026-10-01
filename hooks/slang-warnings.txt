@@ -55,7 +55,7 @@ arith-op-mismatch          HIGH      Signedness Review       arithmetic between 
 case-redundant-default     LOW       Case Statement Review   'unique' case also has a 'default' label
 useless-cast               INFO      Maintainability         cast to the same type
 
-# Added after calibrating against real RTL (a production block, 2654 lines, 10 files).
+# Added after calibrating against a production RTL block (~2650 lines, 10 files).
 # These six were the ones real code actually produced, and all six were
 # defaulting to MEDIUM because they were missing here -- which turned 29
 # warnings into 29 MEDIUMs and would have made the gate look like noise.
@@ -66,13 +66,13 @@ unused-but-set-net         LOW       Maintainability         net assigned but va
 unused-parameter           LOW       Maintainability         parameter is never used
 width-expand               LOW       Width Review            implicit conversion EXPANDS width
 
-# Added after calibrating against a second real block (a second production block). Both arise from
+# Added after calibrating against a second production block. Both arise from
 # untyped parameters used as FSM state encodings -- AP-SIGN-02. 26 findings in
 # one file from one declaration style, which is why rtl-lint now rolls repeats up.
 case-type                  MEDIUM    Case Statement Review   case item type differs from the selector
 sign-conversion            MEDIUM    Signedness Review       implicit conversion changes signedness
 
-# Added from the a second production block calibration.
+# Added from the second block's calibration.
 #
 # incomplete-return was briefly rated HIGH here on the assumption that a
 # non-void function missing a return path yields an undefined value. READING THE

@@ -18,8 +18,8 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
-# VC SpyGlass lives here on this machine, but the binary was not located when
-# this repo was built. Rather than guess an invocation, we look and report.
+# Set SPYGLASS_HOME to your CDC tool's install root. Rather than guess an
+# invocation for a tool we cannot see, we look and report honestly.
 SPYGLASS_ROOT="${SPYGLASS_HOME:-}"
 FOUND=""
 
@@ -40,8 +40,8 @@ if [ -z "$FOUND" ]; then
   cat <<EOF
 RTL-CDC: NOT_AVAILABLE
 
-No CDC tool found on PATH (looked for: sg_shell, spyglass, vc_static_shell)
-and none located under: $SPYGLASS_ROOT
+No CDC tool found on PATH (looked for: sg_shell, spyglass, vc_static_shell)${SPYGLASS_ROOT:+
+and none located under: $SPYGLASS_ROOT}
 
 CONSEQUENCE -- state this plainly in any review:
   All CDC findings remain [reasoning] tier and UNVERIFIED. Per
@@ -60,7 +60,7 @@ WHAT YOU CAN STILL DO, and should:
   A structural review done properly catches AP-CDC-01 (multi-bit through a
   2-flop sync), which is the most common CDC bug and needs no tool to see.
 
-  Set SPYGLASS_HOME if the tool is installed somewhere else.
+  Set SPYGLASS_HOME to your CDC tool's install root so this can find it.
 EOF
   exit 0
 fi

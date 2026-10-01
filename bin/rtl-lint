@@ -10,7 +10,7 @@
 # ---------------------------------------------------------------------------
 # FILELIST CONTEXT -- why this is not a simple per-file lint
 # ---------------------------------------------------------------------------
-# Calibrated against real RTL (a production block, 10 files, 2654 lines):
+# Calibrated against a production RTL block (10 files, ~2650 lines):
 #
 #   per-file, no context  ->  93 BLOCKERs, every one "use of undeclared
 #                             identifier" from `define macros living in
@@ -158,7 +158,7 @@ fi
 # Calibration finding: every real block instantiates library cells (clock
 # gates, muxes, RAMs, pads) that are NOT in its filelist. Stubbing them makes
 # their outputs look undriven, which propagates to the enclosing module's
-# output ports. On a production block that produced 7 undriven-* findings, ALL artifacts
+# output ports. On the calibration block that produced 7 undriven-* findings, ALL artifacts
 # of one stubbed clock-gate cell.
 #
 # So: find out what was stubbed, by re-running WITHOUT the flag and reading
@@ -198,7 +198,7 @@ STUB_SENSITIVE = {"undriven-port", "undriven-net", "unused-but-set-net"}
 # Signedness findings whose "signed" side is an unsized integer literal or an
 # untyped parameter. slang renders both as 'logic signed[31:0]' with no name.
 #
-# Calibrated on a production state machine: 26 findings, all from FSM state parameters declared
+# Calibrated on a production state machine: 26 findings, all from state parameters declared
 # as bare `parameter SOME_STATE = 9;` (untyped => signed 32-bit), compared against
 # a reg[3:0] state. Rating these HIGH blocked the file for writing
 # `state == SOME_STATE`, which is value-correct: one unsigned operand makes the
