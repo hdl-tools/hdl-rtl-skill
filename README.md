@@ -1,5 +1,7 @@
 # hdl-rtl-skill
 
+[![CI](https://github.com/hdl-tools/hdl-rtl-skill/actions/workflows/ci.yml/badge.svg)](https://github.com/hdl-tools/hdl-rtl-skill/actions/workflows/ci.yml)
+
 An AI skill ecosystem for Verilog/SystemVerilog RTL — generation, review, signoff and
 debug. It is **not** a syntax tutorial. Every part of it exists to cut one of:
 hallucinations, functional bugs, review escapes, CDC issues, reset issues, FSM errors,
@@ -148,6 +150,12 @@ hooks/rtl_gate.sh tests/bad/ap_inferred_latch.sv; echo $?    # exit 2
 
 Run the third one four times: it blocks three times, then escalates to
 `MANUAL_REVIEW_REQUIRED` and stops blocking. It cannot loop forever.
+
+These same checks, plus `tests/check-claims.sh` (the counted claims on this page vs. the
+files on disk) and `shellcheck`, run on every PR and push via
+[CI](https://github.com/hdl-tools/hdl-rtl-skill/actions/workflows/ci.yml), and weekly
+against the newest slang release to catch upstream drift. A repo built on "verify, cite,
+and say so when you could not" should show its own evidence.
 
 The gate is also structurally unable to hang — a path argument short-circuits stdin, and
 any stdin read is bounded. It runs on every file write in your editor, so a frozen
